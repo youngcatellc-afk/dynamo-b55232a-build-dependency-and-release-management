@@ -16,18 +16,15 @@ A **pressing** is one sealed build, published to exactly one outlet. It carries 
 a revision, the instant it was sealed, and a manifest.
 
 A **part** is one file of a pressing's manifest: the path the file sits at inside the
-pressing, and the SHA-256 digest of its bytes. The path is the file it denotes and the
-digest is the value it names; neither is the string it happens to be written with.
+pressing, and the SHA-256 digest of its bytes. A manifest is the list of parts sealed into
+the pressing.
 
 A **countersign** is the record of one builder run. It names its subjects by content — a
-path and a digest — and not by pressing. A run attests the parts it produced, so the parts
-of one pressing may be spread over several countersigns, and a part shared unchanged
-between pressings is attested for all of them at once. A countersign carries a scope;
-only the `release` scope is release evidence.
+path and a digest — and not by pressing. A countersign carries a scope; only the `release`
+scope is release evidence.
 
-An **embargo** is one row of the embargo log. The log is append-only and unordered, and a
-pressing that has been embargoed more than once carries a row for each. A row with no
-release instant has not been released.
+An **embargo** is one row of the embargo log. A row with no release instant has not been
+released.
 
 A **strike** withdraws a pressing permanently.
 
@@ -52,8 +49,8 @@ A pressing is eligible for its outlet when all five of these hold.
    released strictly after it.
 
 5. **Countersigned.** Every part of its manifest is named as a subject of some `release`
-   countersign, at the same path and with the same digest. Subjects drawn from any number
-   of countersigns count together.
+   countersign — the same file, at the same path inside the pressing, carrying the same
+   digest value. Subjects drawn from any number of countersigns count together.
 
 Among the pressings eligible for an outlet, the **reissue candidate** is the one with the
 greatest revision. If more than one shares that revision, it is the one of those sealed

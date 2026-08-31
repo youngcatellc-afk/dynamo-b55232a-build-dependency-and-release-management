@@ -2,9 +2,10 @@
 
 This shares no code with the builder and none with the reference solution. It
 reads the files off disk rather than the structures the builder held; it settles
-paths by walking their components instead of calling the path library; it keeps
-instants as the text the depot wrote and compares them as text; it decides the
-embargo question in one pass over the log instead of grouping rows by pressing;
+paths by walking their components instead of calling the path library; it turns
+an instant into a count of seconds with a calendar walk of its own rather than a
+date library; it decides the embargo question in one pass over the log instead of
+grouping rows by pressing;
 and it walks each outlet in rank order and stops at the first pressing that holds
 up, instead of filtering a field and then sorting it.
 
@@ -41,6 +42,25 @@ def release_order(text: str):
     return tuple(int(piece) for piece in text.split("."))
 
 
+def moment(written: str) -> int:
+    """The instant a written timestamp names, as seconds since the epoch."""
+    year, month, day = int(written[0:4]), int(written[5:7]), int(written[8:10])
+    hour, minute, second = int(written[11:13]), int(written[14:16]), int(written[17:19])
+    tail = written[19:]
+    away = 0
+    if tail and tail[0] in "+-":
+        away = int(tail[1:3]) * 60 + int(tail[4:6])
+        if tail[0] == "-":
+            away = -away
+    days = 0
+    for step in range(1970, year):
+        days += 366 if (step % 4 == 0 and step % 100 != 0) or step % 400 == 0 else 365
+    leap = (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
+    lengths = [31, 29 if leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    days += sum(lengths[: month - 1]) + day - 1
+    return ((days * 24 + hour) * 60 + minute - away) * 60 + second
+
+
 def _read_lines(path):
     with open(path, "r", encoding="utf-8") as handle:
         for line in handle:
@@ -53,8 +73,8 @@ def audit(depot: str) -> dict:
     """The slate this depot implies, and how many pressings are countersigned."""
     with open(os.path.join(depot, "outlets.json"), "r", encoding="utf-8") as handle:
         book = json.load(handle)
-    cut = book["cut"]
-    floors = {row["outlet"]: row["reissue_floor"] for row in book["outlets"]}
+    cut = moment(book["cut"])
+    floors = {row["outlet"]: moment(row["reissue_floor"]) for row in book["outlets"]}
     shelves = [row["outlet"] for row in book["outlets"]]
 
     attested = set()
@@ -73,6 +93,7 @@ def audit(depot: str) -> dict:
             if (settle_path(part["path"]), settle_digest(part["digest"])) not in attested:
                 short += 1
         row["covered"] = short == 0
+        row["at"] = moment(row["sealed_at"])
         countersigned += 1 if short == 0 else 0
         pressings[row["pressing"]] = row
         shelf_rows.setdefault(row["outlet"], []).append(row)
@@ -81,9 +102,9 @@ def audit(depot: str) -> dict:
     # cut. Rows for a pressing may sit anywhere in the file and in any order.
     shut = set()
     for row in _read_lines(os.path.join(depot, "embargoes.jsonl")):
-        if row["opened_at"] > cut:
+        if moment(row["opened_at"]) > cut:
             continue
-        if row["released_at"] is not None and row["released_at"] <= cut:
+        if row["released_at"] is not None and moment(row["released_at"]) <= cut:
             continue
         shut.add(row["pressing"])
 
@@ -104,12 +125,12 @@ def audit(depot: str) -> dict:
         floor = floors[oid]
         contenders = sorted(
             shelf_rows.get(oid, []),
-            key=lambda row: (-row["revision"], _reverse(row["sealed_at"]), row["pressing"]),
+            key=lambda row: (-row["revision"], -row["at"], row["pressing"]),
         )
         for row in contenders:
             if row["pressing"] in withdrawn:
                 continue
-            if row["sealed_at"] < floor or row["sealed_at"] > cut:
+            if row["at"] < floor or row["at"] > cut:
                 continue
             if oid in bar and release_order(row["version"]) <= bar[oid]:
                 continue
@@ -121,8 +142,3 @@ def audit(depot: str) -> dict:
             break
 
     return {"slate": slate, "countersigned": countersigned}
-
-
-def _reverse(text: str):
-    """Sort an instant written as text into descending order."""
-    return tuple(-ord(ch) for ch in text)

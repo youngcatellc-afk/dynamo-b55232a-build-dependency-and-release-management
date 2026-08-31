@@ -2,7 +2,7 @@
 """Work the reissue policy over the depot and write the slate.
 
 Five clauses decide whether a pressing is eligible for its outlet, and three
-tie-breaks decide which of the eligible ones the outlet is owed. Two of the five
+tie-breaks decide which of the eligible ones the outlet is owed. Several of them
 turn on how the depot writes things down rather than on what it says:
 
   * a countersign names its subjects by content, not by pressing, so coverage is
@@ -12,7 +12,11 @@ turn on how the depot writes things down rather than on what it says:
 
   * the embargo log is append-only and unordered, so a pressing can carry several
     rows and it is shut at the cut if *any* of them was open then — reducing the
-    log to one row per pressing quietly answers a different question.
+    log to one row per pressing quietly answers a different question;
+
+  * a manifest is a list and not an index, so a path that appears twice has to be
+    attested twice, and an instant is a moment rather than the text it was written
+    with, so comparing the written forms puts some of them in the wrong order.
 
 The strike list does double duty: it removes pressings, and the greatest version
 it names on an outlet is the bar that outlet will not reissue back to.
@@ -20,6 +24,7 @@ it names on an outlet is the bar that outlet will not reissue back to.
 
 import json
 import os
+from datetime import datetime, timezone
 
 DEPOT = "/app/depot"
 ANSWER = "/app/reissue_slate.json"
@@ -59,11 +64,19 @@ def ordering(version):
     return tuple(int(piece) for piece in version.split("."))
 
 
+def instant(written):
+    """The moment a timestamp names, whichever clock it was written against."""
+    when = datetime.fromisoformat(written.replace("Z", "+00:00"))
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when
+
+
 def main():
     with open(os.path.join(DEPOT, "outlets.json"), "r", encoding="utf-8") as handle:
         book = json.load(handle)
-    cut = book["cut"]
-    floor = {row["outlet"]: row["reissue_floor"] for row in book["outlets"]}
+    cut = instant(book["cut"])
+    floor = {row["outlet"]: instant(row["reissue_floor"]) for row in book["outlets"]}
 
     # Clause 5. Every release run contributes its subjects to one pool, and a
     # pressing is countersigned when every part of its manifest is in that pool.
@@ -83,8 +96,8 @@ def main():
     # Clause 4. Any row that was open at the cut shuts the pressing.
     shut = set()
     for row in records("embargoes.jsonl"):
-        if row["opened_at"] <= cut:
-            if row["released_at"] is None or row["released_at"] > cut:
+        if instant(row["opened_at"]) <= cut:
+            if row["released_at"] is None or instant(row["released_at"]) > cut:
                 shut.add(row["pressing"])
 
     # Clauses 2 and 3, both off the strike list.
@@ -107,7 +120,7 @@ def main():
             pid = pressing["pressing"]
             if pressing["outlet"] != shelf or pid in struck or pid in shut:
                 continue
-            if not floor[shelf] <= pressing["sealed_at"] <= cut:
+            if not floor[shelf] <= instant(pressing["sealed_at"]) <= cut:
                 continue
             if shelf in bar and ordering(pressing["version"]) <= bar[shelf]:
                 continue
@@ -116,7 +129,8 @@ def main():
             eligible.append(pressing)
         if not eligible:
             continue
-        best = min(eligible, key=lambda row: (-row["revision"], _latest(row["sealed_at"]),
+        best = min(eligible, key=lambda row: (-row["revision"],
+                                              -instant(row["sealed_at"]).timestamp(),
                                               row["pressing"]))
         slate[shelf] = best["pressing"]
 
@@ -124,11 +138,6 @@ def main():
         json.dump({"slate": slate, "countersigned": len(covered)}, handle,
                   indent=2, sort_keys=True)
         handle.write("\n")
-
-
-def _latest(instant):
-    """Sort an instant written as text so the later one comes first."""
-    return tuple(-ord(ch) for ch in instant)
 
 
 if __name__ == "__main__":

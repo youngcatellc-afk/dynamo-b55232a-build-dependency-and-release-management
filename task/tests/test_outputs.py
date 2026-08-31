@@ -23,9 +23,17 @@ def slate():
 
 
 def test_the_rebuilt_depot_holds_up_before_anything_is_graded(truth):
-    """Two independent readings agree, and no clause of the policy is dead on it."""
-    assert truth["counts"]["pressings"] > 700, "the rebuilt depot came out too small"
-    assert len(truth["board"]) >= 15, "a reading of the policy went missing from the board"
+    """Two independent readings agree, and no clause of the policy is dead on it.
+
+    The board the builder keeps covers every misreading the depot is built to
+    punish — ordering instants by their written text, folding a manifest to one
+    row per path, comparing a path or a digest as the string it was written with,
+    reducing the embargo log to a row per pressing, and each window bound, strike
+    clause and tie-break read the other way. Every one of them has to change a
+    graded value, or a clause of the policy is dead on the data that ships.
+    """
+    assert truth["counts"]["pressings"] > 2000, "the rebuilt depot came out too small"
+    assert len(truth["board"]) >= 22, "a reading of the policy went missing from the board"
     assert len(truth["answer"]["slate"]) == len(truth["outlets"]) - 1, (
         "expected every outlet but one to be owed a pressing"
     )

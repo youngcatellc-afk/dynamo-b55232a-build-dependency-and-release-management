@@ -2,7 +2,7 @@ artifacts = ["/app/reissue_slate.json"]  # the path the verifier reads from the 
 
 [task]
 name = "dynamo/reissue-slate"
-description = "Pick, for each outlet of a firmware release depot of nine hundred and fifty-nine pressings, the one archived pressing that is eligible to be re-signed and re-published after a signing key was withdrawn."
+description = "Pick, for each outlet of a firmware release depot of two and a half thousand pressings, the one archived pressing that is eligible to be re-signed and re-published after a signing key was withdrawn."
 
 [metadata]
 # --- Pre-seeded for you when this repo was created — DO NOT EDIT ---
@@ -20,72 +20,75 @@ The person who does this for a living is a release engineer on a firmware
 distribution service, on the day a signing key is withdrawn. Every shelf the
 service publishes to has to be given one archived build to re-sign and put back
 out, and the choice is not free: it has to be recent enough for that shelf's
-agreement, still attested by the builders who made it, not under an open quality
-or legal embargo, not something the service has already told that shelf never to
-trust again, and it has to be the newest such build rather than merely a working
-one. Getting it wrong re-publishes a withdrawn version, or ships something whose
-provenance the service cannot show. This is the work behind an OTA recall and
-behind any SLSA or in-toto provenance gate, and it is done against exactly this
-kind of record: a depot that has been running for years and was merged out of
-more than one generation of tooling.
+agreement, still attested in full by the builders who made it, not under an open
+quality or legal embargo, not a version the service has already told that shelf
+never to trust again, and it has to be the newest such build rather than merely a
+working one. Getting it wrong re-publishes a withdrawn version, or ships something
+whose provenance the service cannot show. This is the work behind an OTA recall
+and behind any SLSA or in-toto provenance gate, and it is done against exactly
+this kind of record: a depot that has been accumulating for years and is never
+edited after the fact.
 
 The data is synthetic and generated from one fixed seed by a generator that uses
 no clock, no locale, no network and no unseeded randomness, so the depot is
 byte-identical wherever it is rebuilt. It is realistic in the way that matters:
-nine hundred and fifty-nine pressings across fourteen outlets, eleven thousand
-manifest parts, close to eighteen hundred builder runs, and an embargo log and a
-strike list that behave the way real ones do.
+two thousand four hundred and seventy-three pressings across fourteen outlets,
+twenty-nine thousand manifest parts, four and a half thousand builder runs, and an
+embargo log and a strike list that behave the way real ones do.
 
 The difficulty is a conjunction, not a step. Five clauses decide eligibility and
-three tie-breaks decide the pick, none of them hard on its own, and every one of
-them has a coherent wrong reading that produces a complete, well-formed, confident
-slate. There is nothing in the depot that tells the two apart — no oracle to ask,
-no invariant that breaks, no count that comes out short. A wrong reading names a
-plausible pressing of the right outlet, sealed in the right window, and moves on.
+three tie-breaks decide the pick, none of them hard on its own, and each has a
+coherent wrong reading that yields a complete, well-formed, confident slate. There
+is nothing in the depot that tells the two apart — no oracle to ask, no invariant
+that breaks, no entry that comes out missing. A wrong reading names a plausible
+pressing of the right outlet, sealed in the right window, and moves on.
 
-Four of those wrong readings are the ones that a careful engineer still reaches
-for, and each was measured against the depot that ships. A countersign names its
-subjects by content rather than by pressing, so coverage is a question about the
-union of every release run; binding one run to one pressing is the natural
-simplification, and it drops a build whose parts came off two runs. The embargo
-log is append-only and unordered, so a pressing can carry several rows and is shut
-if any of them was open at the cut; reducing the log to one row per pressing
-answers a different question and quietly frees a build that is still embargoed.
-Manifests came off two generations of packing tooling, so a handful of paths and
-digests are written a second way — the same file, the same value, a different
-string — and comparing the strings as written silently uncovers the build that
-should have won. And the strike list does double duty: it removes pressings, and
-the greatest version it names on an outlet is a bar that outlet will not reissue
-back to, which is the clause most easily read as decoration.
+What makes the wrong readings hard to catch is that none of them looks like a
+judgement call at the moment it is made. An instant is a moment, not the text it
+was written with, and a depot that never edits a record keeps whatever clock the
+recording system was set to — so ordering timestamps as strings quietly misplaces
+some of them relative to the floor, the cut and each other. A manifest is a list
+of what was sealed and not an index of it, so a path that a rebuild left twice has
+to be attested twice, and the obvious dictionary keyed by path asks a weaker
+question. A countersign names its subjects by content and not by pressing, so
+coverage is a question about the union of every release run rather than about any
+single one. Paths and digests are compared as the file and the value they name, so
+the same file recorded a second way is still the same file. And the strike list
+does double duty: it removes pressings, and the greatest version it names on an
+outlet is a bar that outlet will not reissue back to — the clause most easily read
+as decoration.
 
-None of these announce themselves. There are ten second spellings in the whole
-depot, spread over eleven thousand manifest parts and ten thousand attested
-subjects, and not one of them is in the first rows of any file; four sit on the
-pressing that decides an outlet and the rest only move the count. Each wrong
-reading swaps one outlet's answer for another plausible pressing rather than
-leaving a gap, so a solver has no missing entry to notice and repair.
+None of these announce themselves. Ten instants in the depot were recorded against
+a local clock, ten values carry a second spelling, and four manifests repeat a path;
+none of them is in the first rows of any file, and each sits where it decides an
+outlet or moves the count. Every wrong reading swaps some outlet's answer for
+another plausible pressing rather than leaving a gap, so a solver has no missing
+entry to notice and repair.
 """
 solution_explanation = """
-Read `/app/REISSUE.md` before writing the parser, and read the depot handover
-notes with it. The policy is five eligibility clauses and three tie-breaks, and
-the whole job is applying all eight at once over the whole depot.
+The policy in `/app/REISSUE.md` is five eligibility clauses and three tie-breaks,
+and the whole job is applying all eight at once over a depot that records things
+the way a depot does rather than the way a parser would like.
 
-Build the coverage question first, and build it the way a countersign is actually
+Turn every timestamp into a moment before comparing anything. The depot writes
+instants in ISO 8601 and does not rewrite a record once it is filed, so a few of
+them carry the offset of the clock they were recorded against; ordering the text
+puts those in the wrong place relative to the floor, the cut and one another.
+
+Build the coverage question next, and build it the way a countersign is actually
 written. Pour the subjects of every `release`-scope countersign into one pool,
 keyed by the file a path denotes and the value a digest names rather than by the
 strings they were written with — settle `.`, `..` and empty components out of a
-path, and take a digest as the hex it carries, whatever its case and whatever
+path, and take a digest as the hex it carries whatever its case and whatever
 prefix sits in front of it. A pressing is countersigned when every part of its
-manifest is in that pool. That pool is shared, so a part attested once is attested
-for every pressing that carries it, and a pressing whose parts came off several
-runs is covered by the union of them. Counting the pressings this holds of, over
-the whole depot, is the second graded value.
+manifest is in that pool. Walk the manifest as the list it is: a path that appears
+twice is two parts, and both have to be attested. Counting the pressings this
+holds of, over the whole depot, is the second graded value.
 
 Then make one pass over the embargo log and collect the pressings that any row
 leaves open at the cut — opened at or before it, and either never released or
-released strictly after it. Do not reduce the log to a row per pressing first: it
-is append-only and unordered, and the row that matters is not reliably the first
-or the last.
+released strictly after it. Do not reduce the log to a row per pressing first: the
+row that matters is not reliably the first or the last.
 
 Make one pass over the strike list and take two things from it: the set of struck
 pressings, and, per outlet, the greatest version any strike names. Compare versions
@@ -95,13 +98,13 @@ Now walk each outlet. Keep the pressings sealed at or after that outlet's
 `reissue_floor` and at or before the cut, that no strike names, whose version is
 strictly greater than that outlet's bar, that no open embargo shuts, and that the
 coverage pass marked countersigned. Take the one with the greatest revision,
-breaking a tie on the latest sealing instant and then on the pressing identifier
-in ascending order. An outlet left with nothing gets no entry at all.
+breaking a tie on the latest sealing instant and then on the pressing identifier in
+ascending order. An outlet left with nothing gets no entry at all.
 
 The reference does exactly this in about a hundred lines of the standard library
-and finishes in under a second. An expert who has read the policy closely needs a
-few hours, nearly all of it spent making sure each clause is being asked of the
-depot as the depot actually records it.
+and finishes in a couple of seconds. An expert who has read the policy closely
+needs a few hours, nearly all of it spent making sure each clause is being asked of
+the depot as the depot actually records it.
 """
 verification_explanation = """
 Nothing under `/app` is treated as ground truth. The grader rebuilds the whole
@@ -111,15 +114,15 @@ entropy, so the tree is byte-identical to the copy baked into the image — and
 derives the expected answer there. It is derived twice: once by the builder from
 the structures it built, and once by a separate reader that re-parses the written
 files, settles paths by walking their components instead of calling the path
-library, compares instants as the text the depot wrote, decides the embargo
-question in one pass over the log, and walks each outlet in rank order stopping at
-the first pressing that holds up. The two share no code, and the grader fails
-closed unless they agree on every graded value.
+library, turns an instant into a count of seconds with a calendar walk of its own,
+decides the embargo question in one pass over the log, and walks each outlet in
+rank order stopping at the first pressing that holds up. The two share no code, and
+the grader fails closed unless they agree on every graded value.
 
 Grading is exact match with no tolerance anywhere, which is the only fair bar for
 an answer made of identifiers and a count. There is one test function per stated
 requirement, each with a docstring: the rebuilt depot holds up before anything is
-graded; every file under `/app/depot` is byte-for-byte as it was shipped, and the
+graded; every file under `/app/depot` is byte-for-byte as it was shipped and the
 set of files is unchanged; the answer parses as a JSON object carrying exactly the
 two documented keys in the documented shapes; every key of `slate` is an outlet of
 this depot and every value is a pressing published to that outlet; every outlet
@@ -130,27 +133,28 @@ deliberate — a reading that mishandles coverage but still lands on the right
 pressing for every outlet fails exactly one test and passes the rest.
 
 The reward is read out of the CTRF report rather than off the exit status, and it
-is a one only when all eight checks were collected, ran and passed, so a truncated
-or skipped suite cannot score. The only path opened under `/app` for grading is
-the deliverable the instruction names, opened with `O_NOFOLLOW` so a symlink
-cannot redirect the read and size-capped before it is parsed.
+is a one only when all eight checks were collected, ran and passed. The only path
+opened under `/app` for grading is the deliverable the instruction names, opened
+with `O_NOFOLLOW` so a symlink cannot redirect the read and size-capped before it
+is parsed.
 
-The builder itself fails closed. It refuses to emit a depot unless every outlet
-but one is owed a pressing, unless that one is owed nothing, and unless each of
-nineteen distinct readings of the policy — comparing path or digest spellings as
-written, matching a subject on path alone, requiring one countersign to cover a
-whole manifest, counting staging runs as release evidence, reducing the embargo
-log to its first or its last row per pressing, moving either embargo bound across
-the cut, moving either window bound, dropping the strike list or its version bar,
-letting a version equal to the bar through, ordering versions as text, picking the
-latest sealing instead of the greatest revision, and settling either tie-break the
-other way — changes a graded value, and does so without leaving any outlet empty.
-A reading that changed nothing would mean a clause was dead on the depot that
+The builder itself fails closed. It refuses to emit a depot unless every outlet but
+one is owed a pressing, unless that one is owed nothing, and unless each of
+twenty-two distinct readings of the policy changes a graded value without leaving
+any outlet empty: ordering instants by their written text; comparing path or digest
+spellings as written; matching a subject on path alone; requiring one countersign
+to cover a whole manifest; folding a manifest to its first or its last row per
+path; counting staging runs as release evidence; reducing the embargo log to its
+first or its last row per pressing; moving either embargo bound across the cut;
+moving either window bound; dropping the strike list or its version bar; letting a
+version equal to the bar through; ordering versions as text; picking the latest
+sealing instead of the greatest revision; and settling either tie-break the other
+way. A reading that changed nothing would mean a clause was dead on the depot that
 ships, and the build stops rather than ship it.
 """
 
 [verifier]
-timeout_sec = 300.0
+timeout_sec = 600.0
 
 [agent]
 timeout_sec = 3600.0

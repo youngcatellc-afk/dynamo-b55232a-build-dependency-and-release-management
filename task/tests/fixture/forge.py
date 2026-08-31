@@ -21,7 +21,7 @@ import posixpath
 
 # The instant the signing key was withdrawn. Everything in the depot is dated
 # against it; nothing is dated against the wall clock.
-CUT = 1932627600  # 2031-04-17T09:00:00Z
+CUT = 1932627600  # 2031-03-30T09:00:00Z
 
 SEED = 0x5C7A19E3B44D0F21
 
@@ -107,6 +107,9 @@ READINGS = (
     "pick_latest",     # pick the latest sealing rather than the highest revision
     "id_tiebreak",     # settle a revision tie on the identifier alone
     "id_desc",         # settle the last tie on the largest identifier
+    "dedupe_last",     # one row per path in a manifest, the last written
+    "dedupe_first",    # one row per path in a manifest, the first written
+    "text_instants",   # order instants by the text they are written with
 )
 
 
@@ -144,9 +147,9 @@ class Roll:
         return self.shuffled(items)[:count]
 
 
-def stamp(seconds: int) -> str:
-    """An instant as the depot writes it: UTC, second resolution, trailing Z."""
-    days, rest = divmod(seconds, DAY)
+def stamp_at(seconds: int, shift: int = 0) -> str:
+    """An instant as the depot writes it, offset by `shift` minutes from UTC."""
+    days, rest = divmod(seconds + shift * 60, DAY)
     hh, rest = divmod(rest, HOUR)
     mm, ss = divmod(rest, 60)
     z = days + 719468
@@ -160,7 +163,16 @@ def stamp(seconds: int) -> str:
     month = mp + 3 if mp < 10 else mp - 9
     if month <= 2:
         year += 1
-    return "%04d-%02d-%02dT%02d:%02d:%02dZ" % (year, month, day, hh, mm, ss)
+    face = "%04d-%02d-%02dT%02d:%02d:%02d" % (year, month, day, hh, mm, ss)
+    if shift == 0:
+        return face + "Z"
+    sign = "+" if shift > 0 else "-"
+    return face + "%s%02d:%02d" % (sign, abs(shift) // 60, abs(shift) % 60)
+
+
+def stamp(seconds: int) -> str:
+    """An instant written in UTC."""
+    return stamp_at(seconds, 0)
 
 
 def digest_of(*bits) -> str:
@@ -196,6 +208,16 @@ def _flip(text: str):
 def resolve(state: dict, reading=()) -> dict:
     """Work the reissue policy over the built structures under one reading."""
     flag = set(reading)
+    text = "text_instants" in flag
+
+    def mark(value, shift=0):
+        """An instant as this reading compares it: as a moment, or as its text."""
+        return stamp_at(value, shift) if text else value
+
+    def down(value):
+        return _flip(value) if text else -value
+
+    cut_mark = mark(CUT)
 
     subjects = set()
     per_sign = []
@@ -215,8 +237,17 @@ def resolve(state: dict, reading=()) -> dict:
         per_sign.append(here)
 
     def keys_of(pressing):
+        rows = pressing["parts"]
+        if "dedupe_last" in flag or "dedupe_first" in flag:
+            folded = {}
+            for part in rows:
+                where = tidy_path(part["path"])
+                if "dedupe_first" in flag and where in folded:
+                    continue
+                folded[where] = part
+            rows = list(folded.values())
         out = []
-        for part in pressing["parts"]:
+        for part in rows:
             path = part["path"] if "raw_path" in flag else tidy_path(part["path"])
             if "path_only" in flag:
                 out.append(path)
@@ -250,17 +281,19 @@ def resolve(state: dict, reading=()) -> dict:
         elif "embargo_first" in flag:
             rows = rows[:1]
         for row in rows:
+            opened = mark(row["opened_at"], row.get("open_shift", 0))
             if "opened_strict" in flag:
-                if row["opened_at"] >= CUT:
+                if opened >= cut_mark:
                     continue
-            elif row["opened_at"] > CUT:
+            elif opened > cut_mark:
                 continue
             if row["released_at"] is None:
                 return True
+            shut = mark(row["released_at"], row.get("shut_shift", 0))
             if "released_ge" in flag:
-                if row["released_at"] >= CUT:
+                if shut >= cut_mark:
                     return True
-            elif row["released_at"] > CUT:
+            elif shut > cut_mark:
                 return True
         return False
 
@@ -272,7 +305,7 @@ def resolve(state: dict, reading=()) -> dict:
     field_of = {}
     for outlet in state["outlets"]:
         oid = outlet["outlet"]
-        floor = outlet["reissue_floor"]
+        floor = mark(outlet["reissue_floor"], outlet.get("shift", 0))
         here = by_outlet.get(oid, [])
 
         bar = None
@@ -290,15 +323,16 @@ def resolve(state: dict, reading=()) -> dict:
             pid = pressing["pressing"]
             if "keep_struck" not in flag and pid in struck:
                 continue
+            sealed = mark(pressing["sealed_at"], pressing.get("shift", 0))
             if "floor_strict" in flag:
-                if pressing["sealed_at"] <= floor:
+                if sealed <= floor:
                     continue
-            elif pressing["sealed_at"] < floor:
+            elif sealed < floor:
                 continue
             if "cut_strict" in flag:
-                if pressing["sealed_at"] >= CUT:
+                if sealed >= cut_mark:
                     continue
-            elif "no_cut" not in flag and pressing["sealed_at"] > CUT:
+            elif "no_cut" not in flag and sealed > cut_mark:
                 continue
             if bar is not None:
                 key = (pressing["version"] if "lex_version" in flag
@@ -314,14 +348,17 @@ def resolve(state: dict, reading=()) -> dict:
                 continue
             field.append(pressing)
 
+        def later(p):
+            return down(mark(p["sealed_at"], p.get("shift", 0)))
+
         if "pick_latest" in flag:
-            rank = lambda p: (-p["sealed_at"], p["pressing"])
+            rank = lambda p: (later(p), p["pressing"])
         elif "id_tiebreak" in flag:
             rank = lambda p: (-p["revision"], p["pressing"])
         elif "id_desc" in flag:
-            rank = lambda p: (-p["revision"], -p["sealed_at"], _flip(p["pressing"]))
+            rank = lambda p: (-p["revision"], later(p), _flip(p["pressing"]))
         else:
-            rank = lambda p: (-p["revision"], -p["sealed_at"], p["pressing"])
+            rank = lambda p: (-p["revision"], later(p), p["pressing"])
         order = sorted(field, key=rank)
         field_of[oid] = [p["pressing"] for p in order]
         if order:
@@ -360,10 +397,10 @@ class Pool:
 
 def _lay_out(roll: Roll) -> dict:
     """The clean depot: pressings, manifests, countersigns, embargoes, strikes."""
-    press_pool = Pool(roll.shuffled(["pr-%04d" % n for n in range(1, 1400)]))
-    sign_pool = Pool(roll.shuffled(["cs-%04d" % n for n in range(1, 3400)]))
-    hold_pool = Pool(roll.shuffled(["eb-%04d" % n for n in range(1, 700)]))
-    strike_pool = Pool(roll.shuffled(["st-%04d" % n for n in range(1, 700)]))
+    press_pool = Pool(roll.shuffled(["pr-%04d" % n for n in range(1, 3400)]))
+    sign_pool = Pool(roll.shuffled(["cs-%04d" % n for n in range(1, 9900)]))
+    hold_pool = Pool(roll.shuffled(["eb-%04d" % n for n in range(1, 2400)]))
+    strike_pool = Pool(roll.shuffled(["st-%04d" % n for n in range(1, 1200)]))
     take_id = press_pool.take
     take_sign = sign_pool.take
     take_hold = hold_pool.take
@@ -384,7 +421,7 @@ def _lay_out(roll: Roll) -> dict:
         for path in STABLE_PARTS:
             stable_digest[(oid, path)] = digest_of("stable", oid, path)
 
-        count = roll.between(58, 78)
+        count = roll.between(150, 200)
         opened = CUT - DAY * roll.between(880, 1010)
         closed = CUT + DAY * roll.between(25, 80)
         run = closed - opened
@@ -622,6 +659,7 @@ def _promote(state, pools, roll, oid, pressing, revision, version=None,
              chunks=1, scope="release", window=True):
     """Make one pressing an outright candidate at the revision asked for."""
     outlet = _outlet(state, oid)
+    state.setdefault("claimed", set()).add(pressing["pressing"])
     _unstrike(state, pressing["pressing"])
     _clear_embargoes(state, pressing["pressing"])
     _detach(pressing)
@@ -636,9 +674,10 @@ def _promote(state, pools, roll, oid, pressing, revision, version=None,
 def _spare(state, oid, used, want=1):
     """Unclaimed pressings on this outlet that already sit inside its window."""
     floor = _outlet(state, oid)["reissue_floor"]
+    claimed = state.get("claimed", set())
     out = []
     for pressing in reversed(_here(state, oid)):
-        if pressing["pressing"] in used:
+        if pressing["pressing"] in used or pressing["pressing"] in claimed:
             continue
         if not floor <= pressing["sealed_at"] <= CUT:
             continue
@@ -841,6 +880,86 @@ def _plant(state, roll, pools):
     trail = _promote(state, pools, roll, oid, upper[-2], 38)
     trail["sealed_at"] = min(lead["sealed_at"] + DAY * 5, CUT - HOUR)
 
+    # Six outlets where an instant was recorded against a local clock rather than
+    # against UTC. The moment is the moment either way; the text it is written
+    # with is not in the same order as the moment.
+
+    # ot-05 -- the winner was sealed inside the window, and reads outside it.
+    lead = _field(state, "ot-05")[0]
+    lead["sealed_at"] = CUT - 2 * HOUR
+    lead["shift"] = 180
+
+    # ot-02 -- the pressing sealed after the cut reads as if it came before.
+    oid = "ot-02"
+    beyond = [p for p in _here(state, oid) if p["sealed_at"] > CUT]
+    beyond.sort(key=lambda p: p["revision"])
+    late = beyond[-1]
+    late["sealed_at"] = CUT + 4 * HOUR
+    late["shift"] = -300
+
+    # ot-08 -- the winner sits on the floor, and reads below it.
+    lead = _field(state, "ot-08")[0]
+    lead["shift"] = -240
+
+    # ot-11 -- a pressing sealed before the floor reads as if it were inside.
+    oid = "ot-11"
+    top = _field(state, oid)
+    early_bird = _spare(state, oid, {top[0]["pressing"]})[0]
+    _promote(state, pools, roll, oid, early_bird, top[0]["revision"] + 6)
+    early_bird["sealed_at"] = _outlet(state, oid)["reissue_floor"] - 3 * HOUR
+    early_bird["shift"] = 240
+
+    # ot-12 -- an embargo released after the cut reads as released before it.
+    oid = "ot-12"
+    top = _field(state, oid)
+    shut_late = _spare(state, oid, {top[0]["pressing"]})[0]
+    _promote(state, pools, roll, oid, shut_late, top[0]["revision"] + 6)
+    row = _row_embargo(pools, shut_late["pressing"], CUT - DAY * 40, CUT + 2 * HOUR, "legal")
+    row["shut_shift"] = -300
+    state["embargoes"].append(row)
+
+    # ot-13 -- three pressings tie on revision, and the text reverses which of
+    # them was sealed latest, without disturbing the pair that share an instant.
+    oid = "ot-13"
+    order = _field(state, oid)
+    base = (order[0]["sealed_at"] // DAY) * DAY + 6 * HOUR
+    order[0]["sealed_at"] = base
+    order[1]["sealed_at"] = base
+    order[2]["sealed_at"] = base - 2 * HOUR
+    order[2]["shift"] = 300
+
+    # A few more local-clock instants, on pressings sealed long before any floor,
+    # so the form is not something only the deciding rows carry.
+    quiet_marks = []
+    for oid, _name in OUTLETS:
+        floor = _outlet(state, oid)["reissue_floor"]
+        for pressing in _here(state, oid):
+            if pressing["sealed_at"] < floor - DAY * 90 and not pressing.get("shift"):
+                quiet_marks.append(pressing)
+                break
+    for index, pressing in enumerate(roll.sample(quiet_marks, 4)):
+        pressing["shift"] = (60, -120, 330, -420)[index]
+
+    # ot-04 / ot-07 -- a rebuild left two rows for one path in a manifest, one of
+    # them attested and one not. Every part has to be attested, so the pressing is
+    # not; folding the manifest to one row per path says otherwise.
+    for oid, where in (("ot-04", "last"), ("ot-07", "first"),
+                       ("ot-09", "last"), ("ot-10", "first")):
+        top = _field(state, oid)
+        lead = top[0]
+        twin = _spare(state, oid, {lead["pressing"]})[0]
+        _promote(state, pools, roll, oid, twin, lead["revision"] + 3)
+        part = [p for p in twin["parts"] if _plain(p["path"])][0]
+        ghost = {
+            "path": part["path"],
+            "digest": digest_of("rebuild", twin["pressing"], part["path"]),
+            "bytes": part["bytes"] + 2048,
+        }
+        rows = list(twin["parts"])
+        at = rows.index(part)
+        rows.insert(at if where == "last" else at + 1, ghost)
+        twin["parts"] = rows
+
     # A few more second spellings, on pressings sealed long before any floor, so
     # they move the depot-wide tally without touching a single outlet's pick.
     seen = {}
@@ -882,47 +1001,30 @@ thing that decides anything.
 ## What is in here
 
 `outlets.json` lists the shelves this depot publishes to and, for each one, the
-reissue floor agreed with that shelf's operator. `pressings.jsonl` is one line
+reissue floor agreed with the operator of that shelf. `pressings.jsonl` is one line
 per pressing ever sealed, carrying its outlet, its version, its revision, the
 instant it was sealed and its manifest. `countersigns.jsonl` is one line per
 builder run that attested content. `embargoes.jsonl` is the embargo log.
 `strikes.jsonl` is the strike list.
 
-## Manifests
+## House rules
 
-The manifests came off two generations of packing tooling. The older one wrote a
-part path the way the packing recipe happened to spell it; the newer one tidies
-the spelling first. Nothing was rewritten when the two archives were merged,
-because a manifest is a record of what was sealed and we do not edit records
-after the fact. Every path is a path relative to the root of the pressing, and it
-denotes the file it denotes however it is spelled.
+Nothing in the depot is edited after the fact. A pressing record is what was
+sealed, a countersign is what a builder run said at the time, and a log row stays
+as it was written. Where something later turned out to be wrong we add a row; we
+do not go back and tidy.
 
-The same is true of the digests. Some runs wrote a bare hex digest, some wrote
-the algorithm in front of it, and the case of the hex was never normalised. It is
-one SHA-256 value either way.
+Retention is indefinite. Pressings sealed long before any floor now in force are
+all still here, and so are the runs that attested them, and so is every row ever
+written to the two logs.
 
-## Countersigns
+Nothing here guarantees a pressing is attested. Plenty are not.
 
-A countersign records what a single builder run attested, and it names its
-subjects by content, not by pressing. A run signs the parts it produced, so a
-pressing whose parts came off more than one run is attested by more than one
-countersign, and a part shared unchanged between pressings is attested once for
-all of them. Runs made for staging carry the staging scope and are kept for
-audit; they are not release evidence.
+## Who to ask
 
-Nothing here guarantees a pressing is attested at all. Some were never
-countersigned, some were countersigned only in part, and some subjects name a
-path whose digest a later rebuild superseded.
-
-## Embargoes and strikes
-
-The embargo log is append-only and unordered: a pressing that has been embargoed,
-released and embargoed again carries a row for each, and the rows are not stored
-in any particular order. A row with no release instant is still open.
-
-A strike is permanent. Struck pressings are never re-served, and the version a
-strike took out is a version this depot has told that shelf not to trust again.
-Not every shelf has had to strike anything.
+Shelf agreements, and any change to a reissue floor, go through the release desk.
+The signing arrangements are with the security desk. Neither of them keeps
+anything in this depot.
 """
 
 
@@ -950,7 +1052,7 @@ def _write(root: str, state: dict) -> None:
             "outlet": row["outlet"],
             "name": row["name"],
             "family": row["family"],
-            "reissue_floor": stamp(row["reissue_floor"]),
+            "reissue_floor": stamp_at(row["reissue_floor"], row.get("shift", 0)),
         }
         for row in state["outlets"]
     ]
@@ -966,7 +1068,7 @@ def _write(root: str, state: dict) -> None:
                 "outlet": row["outlet"],
                 "version": row["version"],
                 "revision": row["revision"],
-                "sealed_at": stamp(row["sealed_at"]),
+                "sealed_at": stamp_at(row["sealed_at"], row.get("shift", 0)),
                 "line": row["line"],
                 "parts": [
                     {"path": p["path"], "digest": p["digest"], "bytes": p["bytes"]}
@@ -989,8 +1091,9 @@ def _write(root: str, state: dict) -> None:
             fh.write(_line({
                 "embargo": row["embargo"],
                 "pressing": row["pressing"],
-                "opened_at": stamp(row["opened_at"]),
-                "released_at": None if row["released_at"] is None else stamp(row["released_at"]),
+                "opened_at": stamp_at(row["opened_at"], row.get("open_shift", 0)),
+                "released_at": (None if row["released_at"] is None
+                                else stamp_at(row["released_at"], row.get("shut_shift", 0))),
                 "raised_by": row["raised_by"],
             }) + "\n")
 
@@ -1153,6 +1256,29 @@ def _claims(state: dict, counts: dict) -> None:
     if not any(row["released_at"] is None for row in state["embargoes"]):
         raise AssertionError("no embargo row is still open")
 
+    ahead = behind = 0
+    for pressing in state["pressings"]:
+        shift = pressing.get("shift", 0)
+        ahead += shift > 0
+        behind += shift < 0
+    for row in state["embargoes"]:
+        for key in ("open_shift", "shut_shift"):
+            shift = row.get(key, 0)
+            ahead += shift > 0
+            behind += shift < 0
+    if not ahead or not behind:
+        raise AssertionError("the depot shows local-clock instants on only one side")
+    if not 6 <= ahead + behind <= 16:
+        raise AssertionError("local-clock instants number %d" % (ahead + behind))
+
+    twinned = 0
+    for pressing in state["pressings"]:
+        here = [tidy_path(part["path"]) for part in pressing["parts"]]
+        if len(here) != len(set(here)):
+            twinned += 1
+    if twinned < 2:
+        raise AssertionError("no manifest carries the same path twice")
+
     for pressing in state["pressings"]:
         pieces = pressing["version"].split(".")
         if len(pieces) != 3 or not all(piece.isdigit() for piece in pieces):
@@ -1160,6 +1286,8 @@ def _claims(state: dict, counts: dict) -> None:
 
     counts["bare_pressings"] = bare_pressings
     counts["shared_parts"] = shared
+    counts["local_clock"] = ahead + behind
+    counts["twinned_manifests"] = twinned
 
 
 def _shape(spelling: str) -> str:
