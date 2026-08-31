@@ -1,0 +1,89 @@
+{
+  "cut": "2031-03-30T09:00:00Z",
+  "outlets": [
+    {
+      "family": "pennine",
+      "name": "northshelf",
+      "outlet": "ot-01",
+      "reissue_floor": "2030-07-22T09:00:00Z"
+    },
+    {
+      "family": "pennine",
+      "name": "harbourgate",
+      "outlet": "ot-02",
+      "reissue_floor": "2029-11-29T09:00:00Z"
+    },
+    {
+      "family": "cortex",
+      "name": "quarryside",
+      "outlet": "ot-03",
+      "reissue_floor": "2030-02-20T09:00:00Z"
+    },
+    {
+      "family": "pennine",
+      "name": "moorgate",
+      "outlet": "ot-04",
+      "reissue_floor": "2030-06-29T09:00:00Z"
+    },
+    {
+      "family": "pennine",
+      "name": "linnetfield",
+      "outlet": "ot-05",
+      "reissue_floor": "2030-03-02T09:00:00Z"
+    },
+    {
+      "family": "cortex",
+      "name": "kilnside",
+      "outlet": "ot-06",
+      "reissue_floor": "2030-02-26T09:00:00Z"
+    },
+    {
+      "family": "meridian",
+      "name": "tarnwick",
+      "outlet": "ot-07",
+      "reissue_floor": "2030-04-05T09:00:00Z"
+    },
+    {
+      "family": "halyard",
+      "name": "penfold",
+      "outlet": "ot-08",
+      "reissue_floor": "2030-07-07T09:00:00Z"
+    },
+    {
+      "family": "halyard",
+      "name": "beaconhill",
+      "outlet": "ot-09",
+      "reissue_floor": "2030-05-01T09:00:00Z"
+    },
+    {
+      "family": "cortex",
+      "name": "saltmere",
+      "outlet": "ot-10",
+      "reissue_floor": "2030-02-09T09:00:00Z"
+    },
+    {
+      "family": "halyard",
+      "name": "colliers",
+      "outlet": "ot-11",
+      "reissue_floor": "2030-06-19T09:00:00Z"
+    },
+    {
+      "family": "halyard",
+      "name": "wrayford",
+      "outlet": "ot-12",
+      "reissue_floor": "2030-04-20T09:00:00Z"
+    },
+    {
+      "family": "pennine",
+      "name": "estbury",
+      "outlet": "ot-13",
+      "reissue_floor": "2030-06-11T09:00:00Z"
+    },
+    {
+      "family": "cortex",
+      "name": "downlea",
+      "outlet": "ot-14",
+      "reissue_floor": "2030-05-08T09:00:00Z"
+    }
+  ]
+}

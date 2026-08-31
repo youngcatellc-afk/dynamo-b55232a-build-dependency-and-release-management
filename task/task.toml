@@ -1,8 +1,8 @@
-artifacts = []  # paths the verifier reads from the agent (e.g. ["/app/output.json"]) — must be above the first [section]
+artifacts = ["/app/reissue_slate.json"]  # the path the verifier reads from the agent
 
 [task]
-name = "dynamo/your-task-name"  # required format: org/name (Harbor needs the slash); name part lowercase kebab-case, <=3 words
-description = ""                 # one-line summary of the task
+name = "dynamo/reissue-slate"
+description = "Pick, for each outlet of a firmware release depot of nine hundred and fifty-nine pressings, the one archived pressing that is eligible to be re-signed and re-published after a signing key was withdrawn."
 
 [metadata]
 # --- Pre-seeded for you when this repo was created — DO NOT EDIT ---
@@ -12,27 +12,154 @@ subcategory = "Release Artifacts"                   # diversity subcategory, ass
 model_tested = "Opus-4.8"           # difficulty-benchmarking model (do not change)
 agent_tested = "Terminus-2"        # difficulty-benchmarking agent (do not change)
 # --- You fill these in ---
-# task_objective / artifact_type: pick from .dynamo/diversity-taxonomy.toml (lowercase snake_case).
-task_objective = []                # e.g. ["implement", "debug"]
-artifact_type = []                 # e.g. ["codebase", "configuration_file"]
-expert_time_estimate_hours = 0     # best-case hours for a focused domain expert with the intended insight
-difficulty_explanation = ""        # why this task is hard for agents and humans
-solution_explanation = ""          # high-level approach and key insights
-verification_explanation = ""      # how the tests verify correctness
+task_objective = ["analyze", "compare_or_select"]
+artifact_type = ["generated_output_artifact"]
+expert_time_estimate_hours = 3
+difficulty_explanation = """
+The person who does this for a living is a release engineer on a firmware
+distribution service, on the day a signing key is withdrawn. Every shelf the
+service publishes to has to be given one archived build to re-sign and put back
+out, and the choice is not free: it has to be recent enough for that shelf's
+agreement, still attested by the builders who made it, not under an open quality
+or legal embargo, not something the service has already told that shelf never to
+trust again, and it has to be the newest such build rather than merely a working
+one. Getting it wrong re-publishes a withdrawn version, or ships something whose
+provenance the service cannot show. This is the work behind an OTA recall and
+behind any SLSA or in-toto provenance gate, and it is done against exactly this
+kind of record: a depot that has been running for years and was merged out of
+more than one generation of tooling.
+
+The data is synthetic and generated from one fixed seed by a generator that uses
+no clock, no locale, no network and no unseeded randomness, so the depot is
+byte-identical wherever it is rebuilt. It is realistic in the way that matters:
+nine hundred and fifty-nine pressings across fourteen outlets, eleven thousand
+manifest parts, close to eighteen hundred builder runs, and an embargo log and a
+strike list that behave the way real ones do.
+
+The difficulty is a conjunction, not a step. Five clauses decide eligibility and
+three tie-breaks decide the pick, none of them hard on its own, and every one of
+them has a coherent wrong reading that produces a complete, well-formed, confident
+slate. There is nothing in the depot that tells the two apart — no oracle to ask,
+no invariant that breaks, no count that comes out short. A wrong reading names a
+plausible pressing of the right outlet, sealed in the right window, and moves on.
+
+Four of those wrong readings are the ones that a careful engineer still reaches
+for, and each was measured against the depot that ships. A countersign names its
+subjects by content rather than by pressing, so coverage is a question about the
+union of every release run; binding one run to one pressing is the natural
+simplification, and it drops a build whose parts came off two runs. The embargo
+log is append-only and unordered, so a pressing can carry several rows and is shut
+if any of them was open at the cut; reducing the log to one row per pressing
+answers a different question and quietly frees a build that is still embargoed.
+Manifests came off two generations of packing tooling, so a handful of paths and
+digests are written a second way — the same file, the same value, a different
+string — and comparing the strings as written silently uncovers the build that
+should have won. And the strike list does double duty: it removes pressings, and
+the greatest version it names on an outlet is a bar that outlet will not reissue
+back to, which is the clause most easily read as decoration.
+
+None of these announce themselves. There are ten second spellings in the whole
+depot, spread over eleven thousand manifest parts and ten thousand attested
+subjects, and not one of them is in the first rows of any file; four sit on the
+pressing that decides an outlet and the rest only move the count. Each wrong
+reading swaps one outlet's answer for another plausible pressing rather than
+leaving a gap, so a solver has no missing entry to notice and repair.
+"""
+solution_explanation = """
+Read `/app/REISSUE.md` before writing the parser, and read the depot handover
+notes with it. The policy is five eligibility clauses and three tie-breaks, and
+the whole job is applying all eight at once over the whole depot.
+
+Build the coverage question first, and build it the way a countersign is actually
+written. Pour the subjects of every `release`-scope countersign into one pool,
+keyed by the file a path denotes and the value a digest names rather than by the
+strings they were written with — settle `.`, `..` and empty components out of a
+path, and take a digest as the hex it carries, whatever its case and whatever
+prefix sits in front of it. A pressing is countersigned when every part of its
+manifest is in that pool. That pool is shared, so a part attested once is attested
+for every pressing that carries it, and a pressing whose parts came off several
+runs is covered by the union of them. Counting the pressings this holds of, over
+the whole depot, is the second graded value.
+
+Then make one pass over the embargo log and collect the pressings that any row
+leaves open at the cut — opened at or before it, and either never released or
+released strictly after it. Do not reduce the log to a row per pressing first: it
+is append-only and unordered, and the row that matters is not reliably the first
+or the last.
+
+Make one pass over the strike list and take two things from it: the set of struck
+pressings, and, per outlet, the greatest version any strike names. Compare versions
+as tuples of integers, component by component.
+
+Now walk each outlet. Keep the pressings sealed at or after that outlet's
+`reissue_floor` and at or before the cut, that no strike names, whose version is
+strictly greater than that outlet's bar, that no open embargo shuts, and that the
+coverage pass marked countersigned. Take the one with the greatest revision,
+breaking a tie on the latest sealing instant and then on the pressing identifier
+in ascending order. An outlet left with nothing gets no entry at all.
+
+The reference does exactly this in about a hundred lines of the standard library
+and finishes in under a second. An expert who has read the policy closely needs a
+few hours, nearly all of it spent making sure each clause is being asked of the
+depot as the depot actually records it.
+"""
+verification_explanation = """
+Nothing under `/app` is treated as ground truth. The grader rebuilds the whole
+depot from the fixture sources beside it into a private temporary directory — the
+same pinned 64-bit generator, no clock, no locale, no network and no unseeded
+entropy, so the tree is byte-identical to the copy baked into the image — and
+derives the expected answer there. It is derived twice: once by the builder from
+the structures it built, and once by a separate reader that re-parses the written
+files, settles paths by walking their components instead of calling the path
+library, compares instants as the text the depot wrote, decides the embargo
+question in one pass over the log, and walks each outlet in rank order stopping at
+the first pressing that holds up. The two share no code, and the grader fails
+closed unless they agree on every graded value.
+
+Grading is exact match with no tolerance anywhere, which is the only fair bar for
+an answer made of identifiers and a count. There is one test function per stated
+requirement, each with a docstring: the rebuilt depot holds up before anything is
+graded; every file under `/app/depot` is byte-for-byte as it was shipped, and the
+set of files is unchanged; the answer parses as a JSON object carrying exactly the
+two documented keys in the documented shapes; every key of `slate` is an outlet of
+this depot and every value is a pressing published to that outlet; every outlet
+owed a pressing is named; an outlet owed nothing is absent rather than null or
+empty; each outlet names the pressing the policy picks; and the count of
+countersigned pressings is right. Splitting the count from the slate is
+deliberate — a reading that mishandles coverage but still lands on the right
+pressing for every outlet fails exactly one test and passes the rest.
+
+The reward is read out of the CTRF report rather than off the exit status, and it
+is a one only when all eight checks were collected, ran and passed, so a truncated
+or skipped suite cannot score. The only path opened under `/app` for grading is
+the deliverable the instruction names, opened with `O_NOFOLLOW` so a symlink
+cannot redirect the read and size-capped before it is parsed.
+
+The builder itself fails closed. It refuses to emit a depot unless every outlet
+but one is owed a pressing, unless that one is owed nothing, and unless each of
+nineteen distinct readings of the policy — comparing path or digest spellings as
+written, matching a subject on path alone, requiring one countersign to cover a
+whole manifest, counting staging runs as release evidence, reducing the embargo
+log to its first or its last row per pressing, moving either embargo bound across
+the cut, moving either window bound, dropping the strike list or its version bar,
+letting a version equal to the bar through, ordering versions as text, picking the
+latest sealing instead of the greatest revision, and settling either tie-break the
+other way — changes a graded value, and does so without leaving any outlet empty.
+A reading that changed nothing would mean a clause was dead on the depot that
+ships, and the build stops rather than ship it.
+"""
 
 [verifier]
-timeout_sec = 120.0                # increase based on your test suite's runtime demands
-# Canonical TB2: the verifier runs in the environment image (no separate tests/Dockerfile).
-# Harbor overlays tests/ at verify time; leave environment_mode unset for this shared model.
+timeout_sec = 300.0
 
 [agent]
-timeout_sec = 120.0                # raise for hard tasks — agents may run for many minutes or hours
+timeout_sec = 3600.0
 
 [environment]
-build_timeout_sec = 600.0          # max seconds for the Docker build
-cpus = 1                           # increase for parallel/compute-heavy workloads
-memory_mb = 2048                   # increase for large datasets or in-memory processing
-storage_mb = 10240                 # increase for tasks with large files or build artifacts
-gpus = 0                           # max 1, expect H100
-allow_internet = true              # open internet is available to the agent
-mcp_servers = []                   # optional MCP servers to expose to the agent
+build_timeout_sec = 900.0
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+mcp_servers = []

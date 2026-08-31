@@ -1,17 +1,23 @@
-<!--
-  This file is the PROMPT handed verbatim to the model that will attempt your task.
-  Replace everything in this comment with your task instruction, then delete the comment.
+The key this firmware depot signs under was withdrawn, and every outlet it publishes to has
+to be given one archived pressing to re-sign and re-publish. Work out which pressing each
+outlet gets.
 
-  Guidelines:
-  - Write it yourself, as a domain expert. Do NOT generate it with an LLM.
-  - It's a prompt, not a document — no title, no section headers, no excessive Markdown.
-  - Write it the way you'd brief a skilled colleague.
-  - Use absolute paths (e.g. /app/output.txt), never relative paths.
-  - Be explicit about every expected output file and its exact format/schema.
-  - Include everything the agent needs to solve the task — and nothing more (don't
-    hint at or reveal your solution).
-  - Keep it concise (<= 1500 tokens). State the goal and required outputs; skip
-    backstory, roleplay, and filler.
--->
+`/app/depot` is the depot: `outlets.json` for the outlets and the instant the key was
+withdrawn, `pressings.jsonl` for every pressing ever sealed and its manifest,
+`countersigns.jsonl` for what the builder runs attested, `embargoes.jsonl` for the embargo
+log, `strikes.jsonl` for the strike list, and `HANDOVER.md` for the notes the depot carries
+with it.
 
-Replace this file with your task instruction.
+`/app/REISSUE.md` is the reissue policy. It is normative and it settles, on its own, which
+pressing each outlet is owed.
+
+Write your answer to `/app/reissue_slate.json`, a JSON object carrying exactly these two
+keys and no others.
+
+`slate` — an object. One member for each outlet that has a reissue candidate: the key is
+the outlet identifier and the value is that candidate's pressing identifier, both as the
+strings the depot writes them with. An outlet with no reissue candidate must not appear.
+
+`countersigned` — an integer: how many pressings in the whole depot are countersigned.
+
+Leave every file under `/app/depot` exactly as you found it.
